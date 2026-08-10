@@ -496,17 +496,22 @@ async function apiGet(action='read'){
   }catch(e){return null;}
 }
 
-// ส่งผ่าน GET เพื่อแก้ปัญหา CORS
+// ส่งผ่าน GET แยก parameter เพื่อแก้ CORS และ URL length limit
 async function apiPost(body){
   if(!S.sheetsUrl) return null;
   try{
-    const payload={...body,user:S.currentUser||'guest'};
-    const encoded=encodeURIComponent(JSON.stringify(payload));
-    const url=S.sheetsUrl+'?action=sync&data='+encoded;
+    const params=new URLSearchParams({
+      action:'sync',
+      user: body.user||S.currentUser||'guest',
+      duties: JSON.stringify(body.duties||{}),
+      staff: JSON.stringify(body.staffList||[]),
+      holidays: JSON.stringify(body.holidays||{})
+    });
+    const url=S.sheetsUrl+'?'+params.toString();
     const res=await fetch(url,{method:'GET'});
     const json=await res.json();
     return json;
-  }catch(e){return null;}
+  }catch(e){console.error('Sync error:',e);return null;}
 }
 
 // Pull all data from Sheets
