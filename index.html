@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ระบบปฏิบัติงานครูเวร - Staff Duty Roster</title>
+<title>ระบบปฏิบัติงาน - Staff Duty Roster</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Mitr:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#07090f;--surface:#0f1623;--surface2:#161e2e;--surface3:#1c2740;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#f59e0b;--green:#10b981;--red:#ef4444;--text:#e2e8f0;--text2:#64748b;--border:rgba(255,255,255,0.07);--glow:0 0 24px rgba(0,212,255,0.18)}
@@ -496,14 +496,14 @@ async function apiGet(action='read'){
   }catch(e){return null;}
 }
 
+// ส่งผ่าน GET เพื่อแก้ปัญหา CORS
 async function apiPost(body){
   if(!S.sheetsUrl) return null;
   try{
-    const res=await fetch(S.sheetsUrl,{
-      method:'POST', mode:'cors',
-      headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({...body,user:S.currentUser||'guest'})
-    });
+    const payload={...body,user:S.currentUser||'guest'};
+    const encoded=encodeURIComponent(JSON.stringify(payload));
+    const url=S.sheetsUrl+'?action=sync&data='+encoded;
+    const res=await fetch(url,{method:'GET'});
     const json=await res.json();
     return json;
   }catch(e){return null;}
