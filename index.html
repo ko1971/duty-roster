@@ -486,14 +486,34 @@ function setSyncStatus(state,msg){
 // ================================================================
 // GOOGLE SHEETS API
 // ================================================================
-async function apiGet(action='read'){
-  if(!S.sheetsUrl) return null;
-  try{
-    const res=await fetch(S.sheetsUrl+'?action='+action,{method:'GET'});
-    const json=await res.json();
-    if(json.ok) return json;
+    const url = S.sheetsUrl +
+      (S.sheetsUrl.includes('?') ? '&' : '?') +
+      'action=' + encodeURIComponent(action);
+
+    const res = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow'
+    });
+
+    if (!res.ok) {
+      throw new Error('HTTP ' + res.status);
+    }
+
+    const json = await res.json();
+
+    if (!json.ok) {
+      throw new Error(
+        json.error || 'API ตอบกลับไม่สำเร็จ'
+      );
+    }
+
+    return json;
+
+  } catch (e) {
+    console.error('Google Sheets API:', e);
+    alert('รายละเอียดข้อผิดพลาด:\n' + e.message);
     return null;
-  }catch(e){return null;}
+  }
 }
 
 // ส่งผ่าน GET แยก parameter เพื่อแก้ CORS และ URL length limit
