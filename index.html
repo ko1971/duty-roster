@@ -236,6 +236,12 @@ main{max-width:1440px;margin:0 auto;padding:22px;position:relative;z-index:1}
   main{padding:12px}
   .stats-grid{grid-template-columns:repeat(2,1fr)}
   .cal-day{min-height:70px}
+  .stat-card{padding:14px;min-width:0}
+  .stat-val{font-size:1.9rem}
+  .monthly-timeline,.today-section,.cal-wrap{padding:14px}
+  .cal-hdr-row{gap:8px}
+  .modal{padding:18px}
+  .login-card{width:min(380px,94vw);padding:28px 22px}
   /* Keep navigation available on mobile instead of hiding Settings. */
   nav{height:auto;min-height:58px;padding:8px 12px;flex-wrap:wrap;gap:8px}
   .nav-brand{flex:1}
@@ -545,22 +551,64 @@ function jsonpRequest(params, timeoutMs=18000){
   });
 }
 
+// Bridge fallback uses a lightweight Apps Script HTML page and postMessage.
+// This avoids relying solely on cross-site JSONP script execution in Safari/Edge.
+function bridgeRequest(params, timeoutMs=22000){
+  return new Promise((resolve,reject)=>{
+    if(!S.sheetsUrl) {reject(new Error('ยังไม่มี URL Google Sheets'));return;}
+    const id='br_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+    const q=new URLSearchParams({...params,action:'bridge',op:params.action||'read',bridgeId:id,_ts:String(Date.now())});
+    q.delete('callback');
+    const url=S.sheetsUrl+(S.sheetsUrl.includes('?')?'&':'?')+q.toString();
+    if(url.length>6500){reject(new Error('URL ยาวเกินไป ไม่สามารถซิงค์ผ่านบริดจ์ได้'));return;}
+    const frame=document.createElement('iframe');
+    frame.title='Duty Roster Google Sheets connection';
+    frame.setAttribute('aria-hidden','true');
+    frame.style.cssText='position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;border:0;left:-9999px';
+    let finished=false,timer;
+    function finish(error,data){
+      if(finished)return;
+      finished=true;
+      clearTimeout(timer);
+      window.removeEventListener('message',onMessage);
+      frame.remove();
+      if(error)reject(error);else resolve(data);
+    }
+    function onMessage(event){
+      if(!/^https:\/\/(?:script\.google\.com|script\.googleusercontent\.com|[a-z0-9-]+\.googleusercontent\.com|[a-z0-9-]+-script\.googleusercontent\.com)$/.test(event.origin))return;
+      const m=event.data;
+      if(!m||m.dutyRosterBridge!==1||m.id!==id)return;
+      finish(null,m.result);
+    }
+    window.addEventListener('message',onMessage);
+    frame.onerror=()=>finish(new Error('ไม่สามารถเปิดหน้าบริดจ์ Apps Script ได้'));
+    timer=setTimeout(()=>finish(new Error('หมดเวลารอการตอบกลับจาก Apps Script (iframe)')),timeoutMs);
+    frame.src=url;
+    document.body.appendChild(frame);
+  });
+}
+async function cloudRequest(params){
+  try{return await jsonpRequest(params,10000);}
+  catch(e1){
+    console.warn('JSONP failed; trying iframe bridge:',e1.message);
+    try{return await bridgeRequest(params,22000);}
+    catch(e2){throw new Error('JSONP: '+e1.message+' | Bridge: '+e2.message);}
+  }
+}
 async function apiGet(action='read'){
   if(!S.sheetsUrl)return null;
   try{
-    const result=await jsonpRequest({action});
-    if(!result || !result.ok)throw new Error((result&&result.error)||'API ตอบกลับไม่สำเร็จ');
+    const result=await cloudRequest({action});
+    if(!result||!result.ok)throw new Error(result&&result.error||'API ตอบกลับไม่สำเร็จ');
     lastSyncError='';return result;
   }catch(e){lastSyncError=e.message;console.error('Sheets read:',e);return null;}
 }
 async function apiPost(body){
   if(!S.sheetsUrl)return null;
   try{
-    const result=await jsonpRequest({action:'sync',
-      staff:JSON.stringify(body.staffList||[]),
-      duties:JSON.stringify(body.duties||{}),
-      holidays:JSON.stringify(body.holidays||{})});
-    if(!result||!result.ok)throw new Error((result&&result.error)||'บันทึกไม่สำเร็จ');
+    const payload={action:'sync',staff:JSON.stringify(body.staffList||[]),duties:JSON.stringify(body.duties||{}),holidays:JSON.stringify(body.holidays||{})};
+    const result=await cloudRequest(payload);
+    if(!result||!result.ok)throw new Error(result&&result.error||'บันทึกไม่สำเร็จ');
     lastSyncError='';return result;
   }catch(e){lastSyncError=e.message;console.error('Sheets write:',e);return null;}
 }
@@ -600,6 +648,15 @@ async function pushToSheets(){
       syncQueued=false;
       const snapshot={staffList:JSON.parse(JSON.stringify(S.staffList)),duties:JSON.parse(JSON.stringify(S.duties)),holidays:JSON.parse(JSON.stringify(S.holidays))};
       const started=lastEditedAt;
+      // Never overwrite a populated cloud roster with a blank local dashboard.
+      const cloud=await apiGet('read');
+      if(!cloud||!cloud.data){localDirty=true;setSyncStatus('error','ไม่สามารถตรวจข้อมูลส่วนกลางก่อนเขียน: '+lastSyncError);break;}
+      const online=cloud.data;
+      if((online.staffList||[]).length && !snapshot.staffList.length){
+        localDirty=true;
+        setSyncStatus('error','หยุดการเขียนทับ: Sheets มีบุคลากร แต่เครื่องนี้แสดง 0 คน');
+        break;
+      }
       setSyncStatus('syncing','กำลังบันทึกลง Google Sheets...');
       const result=await apiPost(snapshot);
       if(!result){localDirty=true;setSyncStatus('error','ยังไม่บันทึกบน Sheets: '+lastSyncError);break;}
@@ -1026,6 +1083,13 @@ document.getElementById('hMonth').value=`${nowD.getFullYear()}-${String(nowD.get
 pullFromSheets();
 // Auto-refresh every 60s
 startAutoRefresh();
+// iOS Safari suspends background tabs; refresh when returning to the page.
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden && !localDirty && !syncRunning)void pullFromSheets();
+});
+window.addEventListener('online',()=>{
+  if(!localDirty && !syncRunning)void pullFromSheets();
+});
 </script>
 </body>
 </html>
