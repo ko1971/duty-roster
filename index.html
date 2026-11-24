@@ -401,6 +401,7 @@ main{max-width:1440px;margin:0 auto;padding:22px;position:relative;z-index:1}
         <button class="btn-green" style="background:var(--surface3);color:var(--text)" onclick="forcePush()">📤 อัปโหลดข้อมูลไป Sheets</button>
       </div>
       <div id="settingsSyncFeedback" role="status" aria-live="polite" style="margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:.82rem;color:var(--text2)">ℹ️ กดปุ่มแล้วผลการเชื่อมต่อและการบันทึกจะแสดงที่นี่</div>
+      <div style="margin-top:8px;font-size:.72rem;color:var(--accent)">เวอร์ชันแก้ไขปุ่ม: 24-11-2569 (ตรวจสอบใต้ปุ่ม)</div>
     </div>
     <div class="sb">
       <h4>🔐 จัดการแอดมิน</h4>
@@ -466,6 +467,8 @@ main{max-width:1440px;margin:0 auto;padding:22px;position:relative;z-index:1}
 const MONTHS=['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const DOWS=['อา','จ','อ','พ','พฤ','ศ','ส'];
 const COLORS=['#00d4ff','#7c3aed','#10b981','#f59e0b','#ef4444','#ec4899','#06b6d4','#84cc16','#f97316','#a855f7'];
+// Shared default endpoint. NOTE: The current public JSONP API is NOT secure for real staff data.
+const DEFAULT_SHEETS_URL='https://script.google.com/macros/s/AKfycbzzJkm3j_n5hL6HPya06-xTCq14EBZ5gcCX4i6TcjfM9CypM90DXwxz5jy2cK3Y9iLC/exec';
 
 // ================================================================
 // STATE
@@ -622,9 +625,8 @@ async function forcePull(){
 }
 async function forcePush(){
   const typed=document.getElementById('sheetsUrl').value.trim();
-  if(typed!==S.sheetsUrl){
-    S.sheetsUrl=typed;lSave();
-  }
+  if(typed!==DEFAULT_SHEETS_URL){setSyncStatus('error','URL ไม่ตรงกับส่วนกลางที่กำหนดไว้ในไฟล์ index.html');return;}
+  S.sheetsUrl=DEFAULT_SHEETS_URL;
   if(!S.sheetsUrl){setSyncStatus('error','กรุณากรอกและบันทึก Web App URL ก่อน');return;}
   if(syncRunning){setSyncStatus('syncing','กำลังซิงค์ข้อมูลอยู่ กรุณารอให้เสร็จก่อน');return;}
   localDirty=true;localStorage.setItem('_duty_pending_sync','1');
@@ -632,14 +634,21 @@ async function forcePush(){
   await pushToSheets();
 }
 function saveUrl(){
-  S.sheetsUrl=document.getElementById('sheetsUrl').value.trim();
+  const entered=document.getElementById('sheetsUrl').value.trim();
+  if(entered!==DEFAULT_SHEETS_URL){
+    alert('เวอร์ชันนี้ใช้ URL ส่วนกลางที่กำหนดใน index.html เพื่อให้ทุกอุปกรณ์ใช้ฐานเดียวกัน\nหากย้าย Deployment ต้องแก้ DEFAULT_SHEETS_URL ใน GitHub แล้วเผยแพร่ใหม่');
+    document.getElementById('sheetsUrl').value=DEFAULT_SHEETS_URL;
+    return;
+  }
+  S.sheetsUrl=DEFAULT_SHEETS_URL;
   lSave();
-  alert('บันทึก URL แล้ว — กดทดสอบการเชื่อมต่อก่อน (ไม่ต้องกดโหลดข้อมูลทันที)');
+  alert('✅ URL ส่วนกลางพร้อมใช้งาน ทุกอุปกรณ์จะอ่านข้อมูลจาก Sheets เดียวกัน');
 }
 async function testUrl(){
   // Save from field as well so an unsaved new URL can be tested.
   const typed=document.getElementById('sheetsUrl').value.trim();
-  if(typed!==S.sheetsUrl){S.sheetsUrl=typed;lSave();}
+  if(typed!==DEFAULT_SHEETS_URL){alert('URL ไม่ตรงกับส่วนกลางที่ตั้งไว้ในไฟล์ index.html');return;}
+  S.sheetsUrl=DEFAULT_SHEETS_URL;
   if(!S.sheetsUrl){alert('กรุณากรอก URL ก่อน');return;}
   setSyncStatus('syncing','กำลังทดสอบ...');
   const res=await apiGet('ping');
@@ -1001,6 +1010,10 @@ document.getElementById('loginOverlay').addEventListener('click',e=>{if(e.target
 // BOOTSTRAP
 // ================================================================
 lLoad();
+// Every browser starts with the same backend, instead of requiring localStorage setup.
+// Keep legacy local records, but never let an old per-browser endpoint override this deployment.
+S.sheetsUrl=DEFAULT_SHEETS_URL;
+lSave();
 // Old local data is never silently replaced on first connection.
 localDirty=localStorage.getItem('_duty_pending_sync')==='1' ||
   (localStorage.getItem('_duty_synced_once')!=='1' &&
