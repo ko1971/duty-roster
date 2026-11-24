@@ -400,6 +400,7 @@ main{max-width:1440px;margin:0 auto;padding:22px;position:relative;z-index:1}
         <button class="btn-green" style="background:var(--accent3);color:#000" onclick="forcePull()">🔄 โหลดข้อมูลจาก Sheets</button>
         <button class="btn-green" style="background:var(--surface3);color:var(--text)" onclick="forcePush()">📤 อัปโหลดข้อมูลไป Sheets</button>
       </div>
+      <div id="settingsSyncFeedback" role="status" aria-live="polite" style="margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:.82rem;color:var(--text2)">ℹ️ กดปุ่มแล้วผลการเชื่อมต่อและการบันทึกจะแสดงที่นี่</div>
     </div>
     <div class="sb">
       <h4>🔐 จัดการแอดมิน</h4>
@@ -485,6 +486,11 @@ function lLoad(){try{const d=localStorage.getItem('_duty_v4');if(d)S={...S,...JS
 // SYNC STATUS UI
 // ================================================================
 function setSyncStatus(state,msg){
+  const feedback=document.getElementById('settingsSyncFeedback');
+  if(feedback){
+    feedback.textContent=(state==='ok'?'✅ ':state==='error'?'❌ ':state==='syncing'?'⏳ ':'ℹ️ ')+msg;
+    feedback.style.color=state==='ok'?'var(--green)':state==='error'?'var(--red)':state==='syncing'?'var(--accent)':'var(--text2)';
+  }
   const bar=document.getElementById('syncBar');
   const dot=bar.querySelector('.sync-dot');
   bar.className='sync-status '+state;
@@ -605,11 +611,26 @@ function saveAndSync(){
   void pushToSheets();
 }
 async function forcePull(){
-  if(localDirty && !confirm('มีข้อมูลในเครื่องที่ยังไม่ได้บันทึกบน Sheets หากโหลดทับอาจสูญหาย ต้องการดำเนินการต่อหรือไม่?'))return;
-  if(localDirty){localDirty=false;lastEditedAt=Date.now();}
+  if(!S.sheetsUrl){setSyncStatus('error','ยังไม่ได้บันทึก Web App URL');return;}
+  if(syncRunning){setSyncStatus('syncing','มีการบันทึกค้างอยู่ กรุณาลองใหม่หลังการบันทึกเสร็จ');return;}
+  if(localDirty){
+    const ok=confirm('มีข้อมูลในเครื่องที่ยังไม่ได้บันทึกบน Sheets การโหลดอาจทำให้ข้อมูลหาย\nควร Export JSON สำรองก่อน\nยืนยันจะโหลดข้อมูลจาก Sheets หรือไม่?');
+    if(!ok){setSyncStatus('local','ยกเลิกการโหลดเพื่อรักษาข้อมูลในเครื่อง');return;}
+    localDirty=false;lastEditedAt=Date.now();
+  }
   await pullFromSheets(true);
 }
-async function forcePush(){localDirty=true;localStorage.setItem('_duty_pending_sync','1');await pushToSheets();}
+async function forcePush(){
+  const typed=document.getElementById('sheetsUrl').value.trim();
+  if(typed!==S.sheetsUrl){
+    S.sheetsUrl=typed;lSave();
+  }
+  if(!S.sheetsUrl){setSyncStatus('error','กรุณากรอกและบันทึก Web App URL ก่อน');return;}
+  if(syncRunning){setSyncStatus('syncing','กำลังซิงค์ข้อมูลอยู่ กรุณารอให้เสร็จก่อน');return;}
+  localDirty=true;localStorage.setItem('_duty_pending_sync','1');
+  setSyncStatus('syncing','กำลังอัปโหลดข้อมูลไป Google Sheets...');
+  await pushToSheets();
+}
 function saveUrl(){
   S.sheetsUrl=document.getElementById('sheetsUrl').value.trim();
   lSave();
